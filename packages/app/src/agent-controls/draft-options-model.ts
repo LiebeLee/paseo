@@ -47,6 +47,11 @@ export interface DraftOptionsModel {
 export function openDraftOptions(input: {
   provider: string | null;
   seed?: ProviderOptions;
+  /**
+   * The provider the draft's form has now. An edit belongs to it even before the screen has
+   * rendered the change, so `setOption` observes it first.
+   */
+  currentProvider?: () => string | null;
 }): DraftOptionsModel {
   let state: DraftOptionsState = {
     provider: input.provider,
@@ -64,6 +69,15 @@ export function openDraftOptions(input: {
     for (const listener of listeners) listener();
   }
 
+  function observeProvider(provider: string | null): void {
+    publish((current) => {
+      if (provider === current.provider) return current;
+      // The first provider a draft picks does not discard what it was opened with.
+      if (current.provider === null) return { ...current, provider };
+      return { ...current, provider, seed: {}, edits: {}, resolved: null };
+    });
+  }
+
   return {
     getState: () => state,
     subscribe: (listener) => {
@@ -72,13 +86,7 @@ export function openDraftOptions(input: {
         listeners.delete(listener);
       };
     },
-    observeProvider: (provider) =>
-      publish((current) => {
-        if (provider === current.provider) return current;
-        // The first provider a draft picks does not discard what it was opened with.
-        if (current.provider === null) return { ...current, provider };
-        return { ...current, provider, seed: {}, edits: {}, resolved: null };
-      }),
+    observeProvider,
     applyProfile: (profile) =>
       publish((current) => ({
         ...current,
@@ -88,12 +96,14 @@ export function openDraftOptions(input: {
         resolved: current.provider === profile.provider ? current.resolved : null,
       })),
     setRemembered: (remembered) => publish((current) => ({ ...current, remembered })),
-    setOption: (key, value) =>
+    setOption: (key, value) => {
+      if (input.currentProvider) observeProvider(input.currentProvider());
       publish((current) =>
         Object.is(current.edits[key], value)
           ? current
           : { ...current, edits: { ...current.edits, [key]: value } },
-      ),
+      );
+    },
     applyResolved: (resolved) => publish((current) => ({ ...current, resolved })),
   };
 }
@@ -168,4 +178,18 @@ export function viewDraftOptions(
         ? resolved.options
         : { ...resolved.options, ...state.edits },
   };
+}
+
+const NO_OPTIONS: ProviderOptions = {};
+
+/**
+ * The options the draft will create with, for a plugin or a control to read: the daemon's answer
+ * for this provider when there is one, otherwise the draft's own layers, so an edit shows before
+ * the daemon has answered.
+ */
+export function shownDraftOptions(
+  state: DraftOptionsState,
+  current: { provider: string | null; requestKey: string },
+): ProviderOptions {
+  return viewDraftOptions(state, current)?.options ?? ownDraftOptions(state) ?? NO_OPTIONS;
 }
