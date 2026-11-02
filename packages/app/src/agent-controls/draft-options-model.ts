@@ -14,6 +14,9 @@ import type {
  * - `remembered`: the provider's last-used control values.
  * - `edits`: toggles made in this draft.
  *
+ * An edit of `null` removes the key from every layer, the way a patch does on a running agent, so
+ * the provider's default applies again.
+ *
  * Choosing a provider by hand starts the options over; applying a profile replaces the provider
  * and the options in one step, so the provider change that follows does not clear them.
  */
@@ -119,8 +122,12 @@ export function ownDraftOptions(state: DraftOptionsState): ProviderOptions | und
       ([key]) => controlKeys.has(key) && !(key in state.seed),
     ),
   );
-  const own = { ...state.seed, ...remembered, ...state.edits };
+  const own = withoutRemovals({ ...state.seed, ...remembered, ...state.edits });
   return Object.keys(own).length > 0 ? own : undefined;
+}
+
+function withoutRemovals(options: ProviderOptions): ProviderOptions {
+  return Object.fromEntries(Object.entries(options).filter(([, value]) => value !== null));
 }
 
 export type DraftControlsRequest = Pick<
@@ -176,7 +183,7 @@ export function viewDraftOptions(
     options:
       resolved.requestKey === current.requestKey
         ? resolved.options
-        : { ...resolved.options, ...state.edits },
+        : withoutRemovals({ ...resolved.options, ...state.edits }),
   };
 }
 
